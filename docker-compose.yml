@@ -20,3 +20,14 @@ services:
       - ./sql:/flyway/sql
     command: -configFiles=/flyway/conf/flyway.conf -connectRetries=60 migrate
 
+  localstack:
+    image: localstack/localstack:3
+    container_name: localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=1
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - ./localstack:/etc/localstack/init/ready.d

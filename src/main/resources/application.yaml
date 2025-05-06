@@ -11,8 +11,8 @@ spring:
       platform: postgres
       schema-locations: classpath:org/springframework/batch/core/schema-postgresql.sql
       #      at creation of db run "always" after the table are always created run "never"
-      #      mode: never
-      mode: always
+      mode: never
+#      mode: always
   jpa:
     hibernate:
       ddl-auto: none
