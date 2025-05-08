@@ -1,5 +1,6 @@
 package com.example.spring_batch_demo.batch.step;
 
+import com.example.spring_batch_demo.batch.listener.FileKeyStepListener;
 import com.example.spring_batch_demo.batch.listener.UserItemReadListener;
 import com.example.spring_batch_demo.batch.listener.UserItemSkipListener;
 import com.example.spring_batch_demo.entity.User;
@@ -50,7 +51,9 @@ public class StepConfig {
     }
 
     @Bean("user-csv-to-db")
-    public Step userCsvToDbStep(PlatformTransactionManager transactionManager, UserItemSkipListener userItemSkipListener) {
+    public Step userCsvToDbStep(PlatformTransactionManager transactionManager,
+                                UserItemSkipListener userItemSkipListener,
+                                FileKeyStepListener fileKeyStepListener) {
         return new StepBuilder("user-csv-to-db", jobRepository)
                 .<User, User>chunk(2, transactionManager)  // commit every 100 items
                 .reader(userFlatFileItemReader)
@@ -59,7 +62,8 @@ public class StepConfig {
                 .faultTolerant()                // enable skip/retry
                 .listener(userItemSkipListener)
                 .skipLimit(10)                 // skip up to 10 bad items
-                .skip(Exception.class)         // skip on all exceptions (customize as needed)
+                .skip(Exception.class)
+                .listener(fileKeyStepListener)// skip on all exceptions (customize as needed)
                 .build();
     }
 
