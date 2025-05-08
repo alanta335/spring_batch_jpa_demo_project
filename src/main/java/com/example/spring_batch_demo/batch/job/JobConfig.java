@@ -28,9 +28,10 @@ public class JobConfig {
     }
 
     @Bean("processUserData")
-    public Job processUserDataJob() {
+    public Job processUserDataJob(JobCompletionS3Uploader jobCompletionS3Uploader) {
         return new JobBuilder("processUserData", jobRepository)
                 .start(userCsvToDbStep)
+                .listener(jobCompletionS3Uploader)
                 .build();
     }
 
