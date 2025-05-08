@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -14,40 +15,51 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class ErrorFileWriter {
 
-    private final ConcurrentHashMap<String, BufferedWriter> writerMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Path> pathMap = new ConcurrentHashMap<>();
+    private static final String ERROR_FILE_PREFIX = "error-";
+    private static final String ERROR_FILE_SUFFIX = ".log";
+    private static final StandardOpenOption WRITE_OPTION = StandardOpenOption.APPEND;
 
-    public void writeError(String fileKey, String phase, Object item, Throwable t) {
+    private final ConcurrentHashMap<String, BufferedWriter> errorWriters = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Path> errorPaths = new ConcurrentHashMap<>();
+
+    public void writeError(String key, String phase, Object item, Throwable t) {
         try {
-            BufferedWriter writer = writerMap.computeIfAbsent(fileKey, key -> {
-                try {
-                    Path tempFile = Files.createTempFile("error-" + key, ".log");
-                    pathMap.put(key, tempFile);
-                    return Files.newBufferedWriter(tempFile, StandardOpenOption.APPEND);
-                } catch (IOException e) {
-                    throw new RuntimeException("Failed to create error log file for key: " + key, e);
-                }
-            });
-
-            writer.write(String.format("[%s] Error: %s | Item: %s%n", phase, t.getMessage(), item));
-            writer.flush();
+            try (BufferedWriter writer = errorWriters.computeIfAbsent(key, this::initializeWriter)) {
+                writer.write(formatErrorEntry(phase, t, item));
+                writer.flush();
+            }
         } catch (IOException e) {
-            log.error("Failed to write error for fileKey={}", fileKey, e);
+            log.error("Failed to write error for key={}", key, e);
         }
     }
 
+    private BufferedWriter initializeWriter(String key) {
+        try {
+            Path tempFile = Files.createTempFile(ERROR_FILE_PREFIX + key, ERROR_FILE_SUFFIX);
+            errorPaths.put(key, tempFile);
+            return Files.newBufferedWriter(tempFile, WRITE_OPTION);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to create error log for key: " + key, e);
+        }
+    }
+
+    private String formatErrorEntry(String phase, Throwable t, Object item) {
+        return String.format("[%s] Error: %s | Item: %s%n", phase, t.getMessage(), item);
+    }
+
+
     public void closeAll() {
-        writerMap.forEach((key, writer) -> {
+        errorWriters.forEach((k, w) -> {
             try {
-                writer.close();
+                w.close();
             } catch (IOException e) {
-                log.warn("Failed to close writer for {}", key, e);
+                log.warn("Failed to close writer for {}", k, e);
             }
         });
     }
 
     public ConcurrentHashMap<String, Path> getErrorFiles() {
-        return pathMap;
+        return errorPaths;
     }
 }
 
