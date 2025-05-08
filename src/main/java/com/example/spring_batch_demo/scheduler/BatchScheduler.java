@@ -1,86 +1,128 @@
 package com.example.spring_batch_demo.scheduler;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FileUtils;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobParameters;
 import org.springframework.batch.core.JobParametersBuilder;
+import org.springframework.batch.core.JobParametersInvalidException;
 import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.batch.core.repository.JobExecutionAlreadyRunningException;
 import org.springframework.batch.core.repository.JobInstanceAlreadyCompleteException;
+import org.springframework.batch.core.repository.JobRestartException;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import software.amazon.awssdk.core.sync.ResponseTransformer;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
+import java.util.Objects;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class BatchScheduler {
+    public static final String TMP_FILE = "/tmp/file/";
+    public static final String BUCKET = "mybucket";
+
     private final JobLauncher jobLauncher;
-    private final Job processUserDataJob;
+    private final Job addressDataProcessingJob;
+    private final Job dataExportingJob;
+    private final Job userDataProcessingJob;
     private final S3Client s3Client;
+
+    public BatchScheduler(@Qualifier("processUserData") Job userDataProcessingJob,
+                          @Qualifier("processAddressData") Job addressDataProcessingJob,
+                          @Qualifier("exportData") Job dataExportingJob,
+                          JobLauncher jobLauncher, S3Client s3Client) {
+        this.userDataProcessingJob = userDataProcessingJob;
+        this.addressDataProcessingJob = addressDataProcessingJob;
+        this.dataExportingJob = dataExportingJob;
+        this.jobLauncher = jobLauncher;
+        this.s3Client = s3Client;
+    }
 
     //    @Scheduled(cron = "0 0 12 * * ?", zone = "UTC")
     @EventListener(ApplicationReadyEvent.class)
-    public void runFootballJob() throws Exception {
+    public void runJobs() {
+        processFiles("user/", userDataProcessingJob);
+        processFiles("address/", addressDataProcessingJob);
+        runJob(dataExportingJob, new JobParametersBuilder()
+                .addLong("timestamp", System.currentTimeMillis())
+                .toJobParameters());
+    }
+
+    private void processFiles(String path, Job job) {
+        List<File> files = getFilesFromS3(path);
+        if (Objects.nonNull(files)) {
+            files.forEach(file -> {
+                JobParameters params = buildJobParameter(file);
+                runJob(job, params);
+                deleteFile(file);
+            });
+        }
+    }
+
+    private void runJob(Job job, JobParameters params) {
         try {
-            List<File> userFiles = getFilesFromS3("user/");
-            List<File> addressFiles = getFilesFromS3("address/");
-            JobParameters params = new JobParametersBuilder()
-                    .addLong("timestamp", System.currentTimeMillis())
-//                    .addString("user", "csv/user.csv")
-//                    .addString("address", "csv/address.csv")
-                    .toJobParameters();
-            jobLauncher.run(processUserDataJob, params);
-        } catch (JobInstanceAlreadyCompleteException e) {
-            log.error("Error running job: {}", e.getMessage());
+            jobLauncher.run(job, params);
+        } catch (JobExecutionAlreadyRunningException | JobRestartException |
+                 JobInstanceAlreadyCompleteException | JobParametersInvalidException e) {
+            log.error("Error running job: {}", e.getMessage(), e);
+        }
+    }
+
+    private static JobParameters buildJobParameter(File file) {
+        return new JobParametersBuilder()
+                .addLong("timestamp", System.currentTimeMillis())
+                .addString("filePath", file.getAbsolutePath())
+                .toJobParameters();
+    }
+
+    private static void deleteFile(File file) {
+        if (file.delete()) {
+            log.info("Deleted file: {} ", file.getAbsolutePath());
+        } else {
+            log.warn("Failed to delete file: {}", file.getAbsolutePath());
         }
     }
 
     public List<File> getFilesFromS3(String path) {
         List<File> downloadedFiles = new ArrayList<>();
 
-        String mybucket = "mybucket";
-
         ListObjectsV2Request listReq = ListObjectsV2Request.builder()
-                .bucket(mybucket)
+                .bucket(BUCKET)
                 .prefix(path)
                 .build();
         s3Client.listObjectsV2(listReq).contents().stream().map(S3Object::key).forEach(key -> {
             log.info("Downloading: {}", key);
-
-            try {
-                // Create a temp file with a unique suffix to avoid conflicts
-                Path tempPath = Files.createTempFile("s3_", "_" + UUID.randomUUID().toString() + ".tmp");
-
-                // Download file from S3
-                GetObjectRequest getReq = GetObjectRequest.builder()
-                        .bucket(mybucket)
-                        .key(key)
-                        .build();
-
-                s3Client.getObject(getReq, ResponseTransformer.toFile(tempPath));
-
-                // Add the downloaded file to the list
-                downloadedFiles.add(tempPath.toFile());
-            } catch (IOException e) {
-                log.error("Failed to download file: " + key, e);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            downloadFileFromS3(key);
+            File file = new File(TMP_FILE + key);
+            downloadedFiles.add(file);
         });
         return downloadedFiles;
+    }
+
+    private void downloadFileFromS3(final String objectKey) {
+        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                .bucket(BatchScheduler.BUCKET)
+                .key(objectKey)
+                .build();
+
+        try (ResponseInputStream<GetObjectResponse> s3ObjectInputStream = s3Client.getObject(getObjectRequest)) {
+            File targetFile = new File(BatchScheduler.TMP_FILE + objectKey);
+            FileUtils.copyInputStreamToFile(s3ObjectInputStream, targetFile);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }

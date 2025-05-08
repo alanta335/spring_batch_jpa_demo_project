@@ -10,6 +10,11 @@ import org.springframework.data.repository.query.Param;
 public interface UserRepository extends JpaRepository<User, Integer> {
     @Modifying
     @Transactional
-    @Query("UPDATE User u SET u.address = :#{#user.address} WHERE u.id = :#{#user.id}")
+    @Query(value = """
+    INSERT INTO mydb.users (id, address)
+    VALUES (:#{#user.id}, :#{#user.address})
+    ON CONFLICT (id)
+    DO UPDATE SET address = EXCLUDED.address
+    """, nativeQuery = true)
     int updateUserAddress(@Param("user") User user);
 }

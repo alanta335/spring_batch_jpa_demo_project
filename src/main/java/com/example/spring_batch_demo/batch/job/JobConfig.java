@@ -27,12 +27,24 @@ public class JobConfig {
         this.userDbToCsvStep = userDbToCsvStep;
     }
 
-    @Bean
+    @Bean("processUserData")
     public Job processUserDataJob() {
-        return new JobBuilder("csv-to-db-to-csv", jobRepository)
+        return new JobBuilder("processUserData", jobRepository)
                 .start(userCsvToDbStep)
-                .next(addressCsvToDbStep)
-                .next(userDbToCsvStep)
+                .build();
+    }
+
+    @Bean("processAddressData")
+    public Job processAddressDataJob() {
+        return new JobBuilder("processAddressData", jobRepository)
+                .start(addressCsvToDbStep)
+                .build();
+    }
+
+    @Bean("exportData")
+    public Job exportDataJob() {
+        return new JobBuilder("exportData", jobRepository)
+                .start(userDbToCsvStep)
                 .build();
     }
 }
