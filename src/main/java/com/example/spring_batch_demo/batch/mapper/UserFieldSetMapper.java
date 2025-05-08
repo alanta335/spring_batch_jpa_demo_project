@@ -8,6 +8,9 @@ public class UserFieldSetMapper implements FieldSetMapper<User> {
 
     @Override
     public User mapFieldSet(FieldSet fieldSet) {
+        if (fieldSet.readInt("id") == 1) {
+            throw new RuntimeException("Error reading user record");
+        }
         return User.builder()
                 .id(fieldSet.readInt("id"))
                 .name(fieldSet.readString("name"))
