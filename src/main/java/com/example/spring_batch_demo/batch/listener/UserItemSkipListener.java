@@ -2,6 +2,7 @@ package com.example.spring_batch_demo.batch.listener;
 
 import com.example.spring_batch_demo.batch.writer.ErrorFileWriter;
 import com.example.spring_batch_demo.entity.User;
+import com.example.spring_batch_demo.enumaration.ErrorType;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -20,16 +21,16 @@ public class UserItemSkipListener implements SkipListener<User, User> {
 
     @Override
     public void onSkipInRead(Throwable t) {
-        errorFileWriter.writeError(currentFileKey, "READ", null, t);
+        errorFileWriter.writeError(currentFileKey, ErrorType.READ, null, t);
     }
 
     @Override
     public void onSkipInWrite(User item, Throwable t) {
-        errorFileWriter.writeError(currentFileKey, "WRITE", item, t);
+        errorFileWriter.writeError(currentFileKey, ErrorType.WRITE, item, t);
     }
 
     @Override
     public void onSkipInProcess(User item, Throwable t) {
-        errorFileWriter.writeError(currentFileKey, "PROCESS", item, t);
+        errorFileWriter.writeError(currentFileKey, ErrorType.PROCESS, item, t);
     }
 }

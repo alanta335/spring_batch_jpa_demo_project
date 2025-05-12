@@ -8,7 +8,7 @@ public class UserFieldSetMapper implements FieldSetMapper<User> {
 
     @Override
     public User mapFieldSet(FieldSet fieldSet) {
-        if (fieldSet.readInt("id") == 1) {
+        if (fieldSet.readInt("id") == 1 || fieldSet.readInt("id") == 11) {
             throw new RuntimeException("Error reading user record");
         }
         return User.builder()

@@ -1,5 +1,6 @@
 package com.example.spring_batch_demo.batch.writer;
 
+import com.example.spring_batch_demo.enumaration.ErrorType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -15,19 +16,18 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class ErrorFileWriter {
 
-    private static final String ERROR_FILE_PREFIX = "error-";
     private static final String ERROR_FILE_SUFFIX = ".log";
     private static final StandardOpenOption WRITE_OPTION = StandardOpenOption.APPEND;
+    public static final String UNDERSCORE = "_";
 
     private final ConcurrentHashMap<String, BufferedWriter> errorWriters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Path> errorPaths = new ConcurrentHashMap<>();
 
-    public void writeError(String key, String phase, Object item, Throwable t) {
+    public void writeError(String key, ErrorType phase, Object item, Throwable t) {
         try {
-            try (BufferedWriter writer = errorWriters.computeIfAbsent(key, this::initializeWriter)) {
-                writer.write(formatErrorEntry(phase, t, item));
-                writer.flush();
-            }
+            BufferedWriter writer = errorWriters.computeIfAbsent(key + UNDERSCORE + phase, this::initializeWriter);
+            writer.write(formatErrorEntry(t, item));
+            writer.flush();
         } catch (IOException e) {
             log.error("Failed to write error for key={}", key, e);
         }
@@ -35,7 +35,7 @@ public class ErrorFileWriter {
 
     private BufferedWriter initializeWriter(String key) {
         try {
-            Path tempFile = Files.createTempFile(ERROR_FILE_PREFIX + key, ERROR_FILE_SUFFIX);
+            Path tempFile = Files.createTempFile(key + UNDERSCORE, ERROR_FILE_SUFFIX);
             errorPaths.put(key, tempFile);
             return Files.newBufferedWriter(tempFile, WRITE_OPTION);
         } catch (IOException e) {
@@ -43,8 +43,8 @@ public class ErrorFileWriter {
         }
     }
 
-    private String formatErrorEntry(String phase, Throwable t, Object item) {
-        return String.format("[%s] Error: %s | Item: %s%n", phase, t.getMessage(), item);
+    private String formatErrorEntry(Throwable t, Object item) {
+        return String.format("Error: %s | Item: %s%n", t.getMessage(), item);
     }
 
 
